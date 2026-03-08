@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Monkey Defense Final</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@900&family=Roboto+Mono:wght@700&display=swap');
+
+        body {
+            margin: 0;
+            background: #020617;
+            color: white;
+            font-family: 'Pretendard', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-card {
+            position: absolute;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        #top-hud {
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            min-width: 600px;
+            justify-content: space-around;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #94a3b8;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 900;
+            color: #fbbf24;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        #shop-bar {
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: auto;
+            padding: 10px 30px;
+            border-radius: 50px;
+        }
+
+        .unit-btn {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #6366f1, #4338ca);
+            border-radius: 20px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: 0.2s;
+            border: 3px solid white;
+            position: relative;
+        }
+
+        .unit-btn:hover {
+            transform: scale(1.1) rotate(-3deg);
+            filter: brightness(1.2);
+        }
+
+        .cost-tag {
+            position: absolute;
+            bottom: -10px;
+            background: #f59e0b;
+            color: black;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+
+        #upgrade-panel {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 280px;
+            background: rgba(15, 23, 42, 0.95);
+            border-radius: 24px;
+            border: 1px solid #6366f1;
+            padding: 25px;
+            pointer-events: auto;
+            display: none;
+        }
+
+        .up-btn {
+            width: 100%;
+            padding: 15px;
+            background: #6366f1;
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 900;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: 0.2s;
+        }
+
+        .up-btn:disabled {
+            background: #334155;
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        canvas {
+            border-radius: 24px;
+            cursor: crosshair;
+            background: #0f172a;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui-layer">
+        <div id="top-hud" class="hud-card">
+            <div class="stat"><span class="stat-label">MONEY</span><span id="val-money" class="stat-value">800</span></div>
+            <div class="stat"><span class="stat-label">WAVE</span><span id="val-wave" class="stat-value">1</span></div>
+            <div class="stat"><span class="stat-label">LIFE</span><span id="val-life" class="stat-value" style="color:#ef4444">100</span></div>
+        </div>
+        <div id="upgrade-panel">
+            <h2 id="up-title" style="margin:0; color:#818cf8">MONKEY ALPHA</h2>
+            <div style="background:rgba(255,255,255,0.05); padding:15px; border-radius:12px; margin:15px 0;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:5px"><span>Level</span><span id="up-lv" style="color:#fbbf24">1</span></div>
+                <div style="display:flex; justify-content:space-between"><span>Range</span><span id="up-rng" style="color:#fbbf24">160</span></div>
+            </div>
+            <button id="up-confirm" class="up-btn">UPGRADE (400)</button>
+        </div>
+        <div id="shop-bar" class="hud-card">
+            <div class="unit-btn" id="btn-buy-monkey"><span style="font-size:35px">🐒</span><span class="cost-tag">$200</span></div>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 1200; canvas.height = 800;
+
+        const LERP = (a, b, t) => a + (b - a) * t;
+        const DIST = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+
+        const state = {
+            money: 800, life: 100, wave: 1,
+            balloons: [], monkeys: [], projectiles: [], particles: [], ftexts: [],
+            selectedMonkey: null, isDragging: false,
+            frameCount: 0, shake: 0, spawnRate: 100
+        };
+
+        const path = [{ x: -50, y: 400 }, { x: 200, y: 400 }, { x: 200, y: 150 }, { x: 600, y: 150 }, { x: 600, y: 650 }, { x: 950, y: 650 }, { x: 950, y: 400 }, { x: 1250, y: 400 }];
+
+        // --- 사운드 시스템 추가 ---
+        const sounds = {
+            pop: new Audio('pop.mp3'),      // 풍선 터질 때
+            upgrade: new Audio('upgrade.mp3') // 업그레이드할 때
+        };
+
+        function playSound(name) {
+            const s = sounds[name].cloneNode(); // 겹쳐서 들리게 복제
+            s.volume = 0.5;
+            s.play().catch(() => {}); // 파일 없어도 에러 무시
+        }
+
+        // --- 이미지 로딩 ---
+        const imgs = {
+            m: [null, new Image(), new Image(), new Image(), new Image()]
+        };
+        imgs.m[1].src = 'monkey_lv1.png';
+        imgs.m[2].src = 'monkey_lv2.png';
+        imgs.m[3].src = 'monkey_lv3.png';
+        imgs.m[4].src = 'monkey_lv4.png';
+
+        let isImgLoaded = false;
+        imgs.m[1].onload = () => { isImgLoaded = true; };
+        if (imgs.m[1].complete) isImgLoaded = true;
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * 8; this.vy = (Math.random() - 0.5) * 8;
+                this.alpha = 1; this.color = color;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.alpha -= 0.03; }
+            draw() { ctx.save(); ctx.globalAlpha = this.alpha; ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x; this.y = y; this.text = text; this.color = color;
+                this.alpha = 1;
+            }
+            update() { this.y -= 1; this.alpha -= 0.02; }
+            draw() { ctx.save(); ctx.globalAlpha = this.alpha; ctx.fillStyle = this.color; ctx.font = "bold 20px Pretendard"; ctx.fillText(this.text, this.x, this.y); ctx.restore(); }
+        }
+
+        class Balloon {
+            constructor(tier) {
+                this.tier = tier; this.hp = 1 + tier * 3; this.maxHp = this.hp;
+                this.speed = 1.5 + tier * 0.2; this.pathIndex = 0;
+                this.x = path[0].x; this.y = path[0].y;
+                this.radius = 20 + tier * 2; this.color = `hsl(${220 - tier * 20}, 80%, 60%)`;
+                this.flash = 0;
+            }
+            update() {
+                let target = path[this.pathIndex + 1];
+                let angle = Math.atan2(target.y - this.y, target.x - this.x);
+                this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
+                if (this.flash > 0) this.flash--;
+                if (DIST(this, target) < this.speed) {
+                    this.pathIndex++;
+                    if (this.pathIndex >= path.length - 1) { state.life -= (this.tier + 1); this.hp = -999; state.shake = 10; }
+                }
+            }
+            draw() {
+                ctx.save();
+                if (this.flash > 0) ctx.filter = "brightness(3)";
+                ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Projectile {
+            constructor(x, y, target, lv) {
+                this.x = x; this.y = y; this.target = target;
+                this.speed = 12; this.damage = lv; this.lv = lv;
+            }
+            update() {
+                let angle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+                this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
+                if (DIST(this, this.target) < 15) {
+                    this.target.hp -= this.damage; this.target.flash = 3;
+                    state.projectiles = state.projectiles.filter(p => p !== this);
+                    for (let i = 0; i < 5; i++) state.particles.push(new Particle(this.x, this.y, this.target.color));
+                    
+                    if (this.target.hp <= 0 && this.target.hp > -900) {
+                        playSound('pop'); // 풍선 터지는 소리
+                        let r = (this.target.tier + 1) * 20; state.money += r;
+                        state.ftexts.push(new FloatingText(this.x, this.y, `+$${r}`, "#4ade80"));
+                    }
+                }
+            }
+            draw() {
+                ctx.fillStyle = this.lv === 4 ? "#00ffff" : "#fbbf24";
+                ctx.beginPath(); ctx.arc(this.x, this.y, 5, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        class Monkey {
+            constructor(x, y) {
+                this.x = x; this.y = y; this.lv = 1; this.range = 160; this.cd = 0; this.recoil = 0; this.angle = 0;
+            }
+            update() {
+                if (this.cd > 0) this.cd--;
+                this.recoil = LERP(this.recoil, 0, 0.1);
+                let target = state.balloons.filter(b => DIST(this, b) < this.range).sort((a, b) => b.pathIndex - a.pathIndex)[0];
+                if (target && this.cd <= 0) {
+                    this.angle = Math.atan2(target.y - this.y, target.x - this.x);
+                    state.projectiles.push(new Projectile(this.x, this.y, target, this.lv));
+                    this.cd = 30 - this.lv * 4; this.recoil = 12;
+                }
+            }
+            drawMonkeyIcon(lv) {
+                ctx.fillStyle = "#8b4513"; ctx.beginPath(); ctx.arc(0, 0, 25, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#e0ac69"; ctx.beginPath(); ctx.arc(0, 8, 15, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(-8, -5, 3, 0, Math.PI * 2); ctx.arc(8, -5, 3, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#8b4513"; ctx.beginPath(); ctx.arc(-22, -10, 8, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(22, -10, 8, 0, Math.PI * 2); ctx.fill();
+            }
+            draw() {
+                ctx.save();
+                if (state.selectedMonkey === this) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.range, 0, Math.PI * 2);
+                    ctx.strokeStyle = "rgba(99, 102, 241, 0.2)";
+                    ctx.lineWidth = 1;
+                    ctx.fillStyle = "rgba(99, 102, 241, 0.05)";
+                    ctx.fill();
+                    ctx.stroke();
+                }
+                let rx = this.x - Math.cos(this.angle) * this.recoil;
+                let ry = this.y - Math.sin(this.angle) * this.recoil;
+                ctx.translate(rx, ry);
+                if (isImgLoaded && imgs.m[this.lv]) {
+                    ctx.rotate(this.angle + Math.PI / 2);
+                    ctx.drawImage(imgs.m[this.lv], -45, -45, 90, 90);
+                } else {
+                    ctx.rotate(this.angle);
+                    this.drawMonkeyIcon(this.lv);
+                }
+                ctx.restore();
+            }
+        }
+
+        // 업그레이드 패널 로직
+        function updateUpgradeUI(m) {
+            const p = document.getElementById('upgrade-panel');
+            const btn = document.getElementById('up-confirm');
+            
+            document.getElementById('up-lv').innerText = m.lv;
+            document.getElementById('up-rng').innerText = m.range;
+            
+            const cost = m.lv * 400;
+            if (m.lv < 4) {
+                btn.innerText = `UPGRADE ($${cost})`;
+                btn.disabled = state.money < cost;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (state.money >= cost) {
+                        playSound('upgrade'); // 업그레이드 소리
+                        state.money -= cost;
+                        m.lv++;
+                        m.range += 30;
+                        updateUpgradeUI(m); // 즉시 갱신 (창 안 닫힘)
+                    }
+                };
+            } else {
+                btn.innerText = "MAX";
+                btn.disabled = true;
+            }
+        }
+
+        function update() {
+            state.frameCount++;
+            if (state.shake > 0) state.shake *= 0.9;
+            if (state.frameCount % state.spawnRate === 0) state.balloons.push(new Balloon(Math.floor(Math.random() * Math.min(state.wave, 11))));
+            if (state.frameCount % 1000 === 0) { state.wave++; state.spawnRate = Math.max(30, state.spawnRate - 5); }
+
+            state.balloons = state.balloons.filter(b => b.hp > 0);
+            state.balloons.forEach(b => b.update());
+            state.monkeys.forEach(m => m.update());
+            state.projectiles.forEach(p => p.update());
+            state.particles = state.particles.filter(p => { p.update(); return p.alpha > 0; });
+            state.ftexts = state.ftexts.filter(t => { t.update(); return t.alpha > 0; });
+
+            document.getElementById('val-money').innerText = state.money;
+            document.getElementById('val-life').innerText = state.life;
+            document.getElementById('val-wave').innerText = state.wave;
+            if (state.life <= 0) { alert("Game Over"); location.reload(); }
+        }
+
+        function draw() {
+            ctx.save();
+            if (state.shake > 1) ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+            ctx.fillStyle = "#0f172a"; ctx.fillRect(0, 0, 1200, 800);
+
+            ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 70; ctx.lineCap = "round"; ctx.lineJoin = "round";
+            ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y); path.forEach(p => ctx.lineTo(p.x, p.y)); ctx.stroke();
+
+            state.balloons.forEach(b => b.draw());
+            state.monkeys.forEach(m => m.draw());
+            state.projectiles.forEach(p => p.draw());
+            state.particles.forEach(p => p.draw());
+            state.ftexts.forEach(t => t.draw());
+
+            if (state.isDragging) {
+                ctx.save(); ctx.globalAlpha = 0.5;
+                ctx.translate(mx, my);
+                if (isImgLoaded) {
+                    ctx.drawImage(imgs.m[1], -45, -45, 90, 90);
+                } else {
+                    new Monkey(0, 0).drawMonkeyIcon(1);
+                }
+                ctx.restore();
+            }
+            ctx.restore();
+        }
+
+        let mx = 0, my = 0;
+        canvas.addEventListener('mousemove', e => {
+            const r = canvas.getBoundingClientRect();
+            mx = (e.clientX - r.left) * (1200 / r.width); my = (e.clientY - r.top) * (800 / r.height);
+        });
+        
+        document.getElementById('btn-buy-monkey').addEventListener('mousedown', () => { if (state.money >= 200) state.isDragging = true; });
+        
+        window.addEventListener('mouseup', () => { 
+            if (state.isDragging) { 
+                state.monkeys.push(new Monkey(mx, my)); 
+                state.money -= 200; 
+                state.isDragging = false; 
+            } 
+        });
+
+        canvas.addEventListener('click', () => {
+            state.selectedMonkey = state.monkeys.find(m => DIST({ x: mx, y: my }, m) < 30);
+            const p = document.getElementById('upgrade-panel');
+            
+            if (state.selectedMonkey) {
+                p.style.display = 'block';
+                updateUpgradeUI(state.selectedMonkey);
+            } else {
+                p.style.display = 'none';
+            }
+        });
+
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
+        loop();
+    </script>
+</body>
+
+</html>

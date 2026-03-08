@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Monkey Defense Final</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"> <title>Monkey Defense Final</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@900&family=Roboto+Mono:wght@700&display=swap');
 
@@ -12,11 +12,12 @@
             background: #020617;
             color: white;
             font-family: 'Pretendard', sans-serif;
-            overflow: hidden;
+            overflow: hidden; /* 스크롤 방지 */
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
+            touch-action: none; /* 모바일 브라우저 기본 제스처 차단 */
         }
 
         #ui-layer {
@@ -91,9 +92,11 @@
             transition: 0.2s;
             border: 3px solid white;
             position: relative;
+            user-select: none; /* 텍스트 선택 방지 */
+            -webkit-user-select: none;
         }
 
-        .unit-btn:hover {
+        .unit-btn:hover, .unit-btn:active {
             transform: scale(1.1) rotate(-3deg);
             filter: brightness(1.2);
         }
@@ -147,6 +150,15 @@
             border-radius: 24px;
             cursor: crosshair;
             background: #0f172a;
+            max-width: 100vw;
+            max-height: 100vh;
+            object-fit: contain; /* 모바일 비율 대응 */
+        }
+
+        @media (max-width: 768px) {
+            #top-hud { min-width: 90%; width: 90%; padding: 10px; }
+            .stat-value { font-size: 18px; }
+            #upgrade-panel { right: 50%; top: auto; bottom: 130px; transform: translateX(50%); width: 85%; }
         }
     </style>
 </head>
@@ -190,22 +202,20 @@
 
         const path = [{ x: -50, y: 400 }, { x: 200, y: 400 }, { x: 200, y: 150 }, { x: 600, y: 150 }, { x: 600, y: 650 }, { x: 950, y: 650 }, { x: 950, y: 400 }, { x: 1250, y: 400 }];
 
-        // --- 사운드 시스템 추가 ---
+        // --- 사운드 시스템 ---
         const sounds = {
-            pop: new Audio('pop.mp3'),      // 풍선 터질 때
-            upgrade: new Audio('upgrade.mp3') // 업그레이드할 때
+            pop: new Audio('pop.mp3'),
+            upgrade: new Audio('upgrade.mp3')
         };
 
         function playSound(name) {
-            const s = sounds[name].cloneNode(); // 겹쳐서 들리게 복제
+            const s = sounds[name].cloneNode();
             s.volume = 0.5;
-            s.play().catch(() => {}); // 파일 없어도 에러 무시
+            s.play().catch(() => {});
         }
 
         // --- 이미지 로딩 ---
-        const imgs = {
-            m: [null, new Image(), new Image(), new Image(), new Image()]
-        };
+        const imgs = { m: [null, new Image(), new Image(), new Image(), new Image()] };
         imgs.m[1].src = 'monkey_lv1.png';
         imgs.m[2].src = 'monkey_lv2.png';
         imgs.m[3].src = 'monkey_lv3.png';
@@ -274,7 +284,7 @@
                     for (let i = 0; i < 5; i++) state.particles.push(new Particle(this.x, this.y, this.target.color));
                     
                     if (this.target.hp <= 0 && this.target.hp > -900) {
-                        playSound('pop'); // 풍선 터지는 소리
+                        playSound('pop');
                         let r = (this.target.tier + 1) * 20; state.money += r;
                         state.ftexts.push(new FloatingText(this.x, this.y, `+$${r}`, "#4ade80"));
                     }
@@ -332,7 +342,6 @@
             }
         }
 
-        // 업그레이드 패널 로직
         function updateUpgradeUI(m) {
             const p = document.getElementById('upgrade-panel');
             const btn = document.getElementById('up-confirm');
@@ -347,11 +356,11 @@
                 btn.onclick = (e) => {
                     e.stopPropagation();
                     if (state.money >= cost) {
-                        playSound('upgrade'); // 업그레이드 소리
+                        playSound('upgrade');
                         state.money -= cost;
                         m.lv++;
                         m.range += 30;
-                        updateUpgradeUI(m); // 즉시 갱신 (창 안 닫힘)
+                        updateUpgradeUI(m);
                     }
                 };
             } else {
@@ -406,24 +415,68 @@
             ctx.restore();
         }
 
+        // --- 통합 이벤트 리스너 (마우스 & 모바일 터치 지원) ---
         let mx = 0, my = 0;
-        canvas.addEventListener('mousemove', e => {
-            const r = canvas.getBoundingClientRect();
-            mx = (e.clientX - r.left) * (1200 / r.width); my = (e.clientY - r.top) * (800 / r.height);
-        });
-        
-        document.getElementById('btn-buy-monkey').addEventListener('mousedown', () => { if (state.money >= 200) state.isDragging = true; });
-        
-        window.addEventListener('mouseup', () => { 
-            if (state.isDragging) { 
-                state.monkeys.push(new Monkey(mx, my)); 
-                state.money -= 200; 
-                state.isDragging = false; 
-            } 
-        });
 
-        canvas.addEventListener('click', () => {
-            state.selectedMonkey = state.monkeys.find(m => DIST({ x: mx, y: my }, m) < 30);
+        function updatePointerPos(e) {
+            const r = canvas.getBoundingClientRect();
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+
+            // 터치 이벤트 대응
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else if (e.changedTouches && e.changedTouches.length > 0) {
+                clientX = e.changedTouches[0].clientX;
+                clientY = e.changedTouches[0].clientY;
+            }
+
+            if (clientX !== undefined && clientY !== undefined) {
+                mx = (clientX - r.left) * (1200 / r.width);
+                my = (clientY - r.top) * (800 / r.height);
+            }
+        }
+
+        // 이동 처리
+        const handleMove = (e) => {
+            if (state.isDragging && e.type === 'touchmove') {
+                e.preventDefault(); // 모바일 드래그 시 화면 스크롤 방지
+            }
+            updatePointerPos(e);
+        };
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('touchmove', handleMove, { passive: false });
+
+        // 구매 버튼 클릭 / 터치 시작 (드래그 시작)
+        const btnBuy = document.getElementById('btn-buy-monkey');
+        const startDrag = (e) => {
+            e.preventDefault(); // 모바일 더블탭/클릭 중복 실행 방지
+            if (state.money >= 200) {
+                state.isDragging = true;
+                updatePointerPos(e); // 터치한 순간의 좌표 반영
+            }
+        };
+        btnBuy.addEventListener('mousedown', startDrag);
+        btnBuy.addEventListener('touchstart', startDrag, { passive: false });
+        
+        // 드래그 종료 (설치)
+        const endDrag = (e) => {
+            if (state.isDragging) {
+                updatePointerPos(e);
+                state.monkeys.push(new Monkey(mx, my));
+                state.money -= 200;
+                state.isDragging = false;
+            }
+        };
+        window.addEventListener('mouseup', endDrag);
+        window.addEventListener('touchend', endDrag);
+
+        // 선택 및 업그레이드 창 (캔버스 터치/클릭)
+        const handleSelect = (e) => {
+            updatePointerPos(e);
+            // 모바일 뚱뚱한 손가락을 고려해 클릭 반경을 30에서 40으로 살짝 키움
+            state.selectedMonkey = state.monkeys.find(m => DIST({ x: mx, y: my }, m) < 40); 
             const p = document.getElementById('upgrade-panel');
             
             if (state.selectedMonkey) {
@@ -432,7 +485,8 @@
             } else {
                 p.style.display = 'none';
             }
-        });
+        };
+        canvas.addEventListener('click', handleSelect);
 
         function loop() { update(); draw(); requestAnimationFrame(loop); }
         loop();
